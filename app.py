@@ -183,5 +183,8 @@ def export_csv_report():
         headers={"Content-Disposition": "attachment;filename=guesthouse_report.csv"}
     )
 
+with app.app_context():
+    db.create_all()
+    
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
