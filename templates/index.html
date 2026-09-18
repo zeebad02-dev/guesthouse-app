@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guest House Management</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen p-8">
+    <div class="max-w-6xl mx-auto space-y-8">
+        
+        <!-- Header & Action Bar -->
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <h1 class="text-3xl font-bold text-gray-800">Guest House Management</h1>
+            <div class="flex gap-2">
+                <button onclick="toggleModal('room-modal', true)" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-semibold">+ Add Room</button>
+                <button onclick="toggleModal('item-modal', true)" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded text-sm font-semibold">+ Add Item</button>
+                <a href="/api/reports/export" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded text-sm font-semibold inline-block">Download CSV Report</a>
+            </div>
+        </div>
+
+        <!-- Stock Summary Bar -->
+        <div id="stock-summary" class="grid grid-cols-1 md:grid-cols-3 gap-4 bg-white p-4 rounded-lg shadow"></div>
+
+        <!-- Room Cards Grid -->
+        <div id="rooms-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+    </div>
+
+    <!-- Modal 1: Add Room -->
+    <div id="room-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-lg p-6 max-w-md w-full space-y-4">
+            <h2 class="text-xl font-bold text-gray-800">Add New Room</h2>
+            <input id="new-room-num" type="text" placeholder="Room Number (e.g. 06)" class="w-full border p-2 rounded">
+            <input id="new-room-type" type="text" placeholder="Room Type (e.g. Deluxe Suite)" class="w-full border p-2 rounded">
+            <input id="new-room-price" type="number" placeholder="Price Per Night" class="w-full border p-2 rounded">
+            <div class="flex justify-end gap-2">
+                <button onclick="toggleModal('room-modal', false)" class="px-4 py-2 bg-gray-200 rounded">Cancel</button>
+                <button onclick="submitRoom()" class="px-4 py-2 bg-blue-600 text-white rounded">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal 2: Add Item -->
+    <div id="item-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-lg p-6 max-w-md w-full space-y-4">
+            <h2 class="text-xl font-bold text-gray-800">Add New Inventory Item</h2>
+            <input id="new-item-name" type="text" placeholder="Item Name (e.g. Robe)" class="w-full border p-2 rounded">
+            <input id="new-item-stock" type="number" placeholder="Total Stock Count" class="w-full border p-2 rounded">
+            <input id="new-item-price" type="number" placeholder="Unit Price" class="w-full border p-2 rounded">
+            <div class="flex justify-end gap-2">
+                <button onclick="toggleModal('item-modal', false)" class="px-4 py-2 bg-gray-200 rounded">Cancel</button>
+                <button onclick="submitItem()" class="px-4 py-2 bg-indigo-600 text-white rounded">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function loadDashboard() {
+            await Promise.all([fetchSummary(), fetchRooms()]);
+        }
+
+        async function fetchSummary() {
+            const res = await fetch('/api/inventory/summary');
+            const summary = await res.json();
+            const container = document.getElementById('stock-summary');
+            container.innerHTML = summary.map(item => `
+                <div class="flex flex-col p-3 border rounded ${item.low_stock_warning ? 'bg-amber-50 border-amber-300' : 'bg-gray-50 border-gray-200'}">
+                    <span class="text-xs font-semibold text-gray-500 uppercase">${item.name}</span>
+                    <div class="flex justify-between items-baseline mt-1">
+                        <span class="text-xl font-bold text-gray-800">${item.in_storage} <span class="text-xs text-gray-500 font-normal">in storage</span></span>
+                        <span class="text-xs text-gray-600">${item.allocated_in_rooms} in rooms / ${item.total_stock} total</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function fetchRooms() {
+            const res = await fetch('/api/rooms');
+            const rooms = await res.json();
+            const container = document.getElementById('rooms-container');
+            container.innerHTML = rooms.map(room => `
+                <div class="bg-white rounded-lg shadow p-6 border-l-4 ${room.is_occupied ? 'border-red-500' : 'border-green-500'}">
+                    <div class="flex justify-between items-center mb-2">
+                        <h2 class="text-xl font-bold text-gray-800">Room ${room.room_number}</h2>
+                        <span class="px-2 py-1 text-xs font-semibold rounded ${room.is_occupied ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}">
+                            ${room.is_occupied ? 'Occupied' : 'Vacant'}
+                        </span>
+                    </div>
+                    <p class="text-gray-600 mb-1">${room.room_type}</p>
+                    <p class="text-gray-800 font-semibold mb-4">$${room.price_per_night} / night</p>
+                    <div class="border-t pt-3 mb-4 space-y-2">
+                        <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Room Inventory</h3>
+                        ${room.inventory.map(i => `
+                            <div class="flex justify-between items-center text-sm text-gray-700">
+                                <span>${i.name}</span>
+                                <div class="flex items-center space-x-2">
+                                    <button onclick="changeQuantity(${room.id}, ${i.item_id}, ${i.quantity - 1})" class="w-6 h-6 bg-gray-200 hover:bg-gray-300 rounded font-bold text-xs flex items-center justify-center">-</button>
+                                    <span class="font-medium w-4 text-center">${i.quantity}</span>
+                                    <button onclick="changeQuantity(${room.id}, ${i.item_id}, ${i.quantity + 1})" class="w-6 h-6 bg-gray-200 hover:bg-gray-300 rounded font-bold text-xs flex items-center justify-center">+</button>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                    <button onclick="toggleOccupancy(${room.id})" class="w-full py-2 rounded text-white font-medium ${room.is_occupied ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}">
+                        ${room.is_occupied ? 'Check Out' : 'Check In'}
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function toggleModal(id, show) {
+            document.getElementById(id).classList.toggle('hidden', !show);
+        }
+
+        async function submitRoom() {
+            const body = {
+                room_number: document.getElementById('new-room-num').value,
+                room_type: document.getElementById('new-room-type').value,
+                price_per_night: document.getElementById('new-room-price').value
+            };
+            await fetch('/api/rooms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+            toggleModal('room-modal', false);
+            loadDashboard();
+        }
+
+        async function submitItem() {
+            const body = {
+                name: document.getElementById('new-item-name').value,
+                total_stock: document.getElementById('new-item-stock').value,
+                unit_price: document.getElementById('new-item-price').value
+            };
+            await fetch('/api/items', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+            toggleModal('item-modal', false);
+            loadDashboard();
+        }
+
+        async function toggleOccupancy(roomId) {
+            await fetch(`/api/rooms/${roomId}/toggle-occupancy`, { method: 'POST' });
+            loadDashboard();
+        }
+
+        async function changeQuantity(roomId, itemId, newQty) {
+            if (newQty < 0) return;
+            await fetch(`/api/rooms/${roomId}/inventory`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ item_id: itemId, quantity: newQty })
+            });
+            loadDashboard();
+        }
+
+        loadDashboard();
+    </script>
+</body>
+</html>
